@@ -16,7 +16,7 @@ const navItems: { page: Page; label: string; icon: React.ComponentType<{ size?: 
 
 export default function BottomNav({ currentPage, onNavigate }: BottomNavProps) {
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700 z-40 transition-colors duration-300">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700 z-40 transition-colors duration-300" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
       <div className="flex">
         {navItems.map(({ page, label, icon: Icon }) => (
           <button
