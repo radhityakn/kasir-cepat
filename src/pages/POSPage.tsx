@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef } from 'react';
-import { Search, Plus, Minus, Trash2, ShoppingBag, ChevronRight, X, Tag, Printer, Barcode, CheckCircle, AlertCircle } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, ShoppingBag, ChevronRight, X, Tag, Printer, Barcode, CheckCircle, AlertCircle, Camera } from 'lucide-react';
 import type { Product, CartItem, Transaction } from '../types';
 import { formatRupiah } from '../utils/format';
 import { categories } from '../data/products';
@@ -7,6 +7,7 @@ import { useApp } from '../context/AppContext';
 import { printReceipt } from '../utils/printReceipt';
 import ReceiptPreview from '../components/ReceiptPreview';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
+import CameraScanner from '../components/CameraScanner';
 
 interface POSPageProps {
   products: Product[];
@@ -36,6 +37,7 @@ export default function POSPage({ products, onTransactionComplete }: POSPageProp
   const [amountPaid, setAmountPaid] = useState('');
   const [lastTransaction, setLastTransaction] = useState<Transaction | null>(null);
   const [showReceipt, setShowReceipt] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
 
   // ── Barcode scanner ──
   const [scanToast, setScanToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -67,6 +69,25 @@ export default function POSPage({ products, onTransactionComplete }: POSPageProp
   }, [products, paymentStep, showScanFeedback]);
 
   useBarcodeScanner({ onScan: handleBarcodeScan, enabled: paymentStep === 'cart', minLength: 4 });
+
+  const handleCameraScan = useCallback((barcode: string) => {
+    const product = products.find((p) => p.barcode === barcode);
+    if (!product) {
+      showScanFeedback('error', `Tidak ditemukan: ${barcode}`);
+      return;
+    }
+    setCart((prev) => {
+      const existing = prev.find((i) => i.product.id === product.id);
+      if (existing) {
+        return prev.map((i) =>
+          i.product.id === product.id ? { ...i, quantity: i.quantity + 1 } : i
+        );
+      }
+      return [...prev, { product, quantity: 1 }];
+    });
+    showScanFeedback('success', product.name);
+    setShowCamera(false);
+  }, [products, showScanFeedback]);
 
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
@@ -206,15 +227,25 @@ export default function POSPage({ products, onTransactionComplete }: POSPageProp
               </div>
             )}
           </div>
-          <div className="relative mb-3">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Cari produk..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="input-field pl-9"
-            />
+          <div className="relative mb-3 flex gap-2">
+            <div className="relative flex-1">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Cari produk..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="input-field pl-9"
+              />
+            </div>
+            <button
+              onClick={() => setShowCamera(true)}
+              className="w-10 h-10 rounded-xl bg-brand flex items-center justify-center text-white hover:bg-brand-dark active:scale-95 transition-all flex-shrink-0 shadow-sm"
+              aria-label="Scan barcode via kamera"
+              title="Scan Kamera"
+            >
+              <Camera size={18} />
+            </button>
           </div>
           <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
             {categories.map((cat) => (
@@ -635,6 +666,14 @@ export default function POSPage({ products, onTransactionComplete }: POSPageProp
         <ReceiptPreview
           transaction={lastTransaction}
           onClose={() => setShowReceipt(false)}
+        />
+      )}
+
+      {/* Camera scanner */}
+      {showCamera && (
+        <CameraScanner
+          onScan={handleCameraScan}
+          onClose={() => setShowCamera(false)}
         />
       )}
     </div>
