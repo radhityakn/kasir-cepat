@@ -48,7 +48,7 @@ export default function App() {
   const renderPage = () => {
     switch (currentPage) {
       case 'pos':
-        return <POSPage products={products} onTransactionComplete={handleTransactionComplete} />;
+        return <POSPage products={products} onTransactionComplete={handleTransactionComplete} onAddProduct={handleAddProduct} />;
       case 'history':
         return <HistoryPage transactions={transactions} />;
       case 'products':

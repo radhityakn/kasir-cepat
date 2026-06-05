@@ -8,10 +8,12 @@ import { printReceipt } from '../utils/printReceipt';
 import ReceiptPreview from '../components/ReceiptPreview';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import CameraScanner from '../components/CameraScanner';
+import QuickAddProduct from '../components/QuickAddProduct';
 
 interface POSPageProps {
   products: Product[];
   onTransactionComplete: (transaction: Transaction) => void;
+  onAddProduct: (product: Product) => void;
 }
 
 const paymentMethods = [
@@ -23,7 +25,7 @@ const paymentMethods = [
 
 type PaymentStep = 'cart' | 'payment' | 'success';
 
-export default function POSPage({ products, onTransactionComplete }: POSPageProps) {
+export default function POSPage({ products, onTransactionComplete, onAddProduct }: POSPageProps) {
   const { settings } = useApp();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Semua');
@@ -38,6 +40,7 @@ export default function POSPage({ products, onTransactionComplete }: POSPageProp
   const [lastTransaction, setLastTransaction] = useState<Transaction | null>(null);
   const [showReceipt, setShowReceipt] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
+  const [unknownBarcode, setUnknownBarcode] = useState<string | null>(null);
 
   // ── Barcode scanner ──
   const [scanToast, setScanToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -54,6 +57,7 @@ export default function POSPage({ products, onTransactionComplete }: POSPageProp
     const product = products.find((p) => p.barcode === barcode);
     if (!product) {
       showScanFeedback('error', `Tidak ditemukan: ${barcode}`);
+      setUnknownBarcode(barcode);
       return;
     }
     setCart((prev) => {
@@ -74,6 +78,8 @@ export default function POSPage({ products, onTransactionComplete }: POSPageProp
     const product = products.find((p) => p.barcode === barcode);
     if (!product) {
       showScanFeedback('error', `Tidak ditemukan: ${barcode}`);
+      setUnknownBarcode(barcode);
+      setShowCamera(false);
       return;
     }
     setCart((prev) => {
@@ -674,6 +680,21 @@ export default function POSPage({ products, onTransactionComplete }: POSPageProp
         <CameraScanner
           onScan={handleCameraScan}
           onClose={() => setShowCamera(false)}
+        />
+      )}
+
+      {/* Quick add product for unknown barcode */}
+      {unknownBarcode && (
+        <QuickAddProduct
+          barcode={unknownBarcode}
+          onAdd={(product) => {
+            onAddProduct(product);
+            // Langsung masukkan ke keranjang
+            setCart((prev) => [...prev, { product, quantity: 1 }]);
+            showScanFeedback('success', `${product.name} ditambahkan!`);
+            setUnknownBarcode(null);
+          }}
+          onCancel={() => setUnknownBarcode(null)}
         />
       )}
     </div>
