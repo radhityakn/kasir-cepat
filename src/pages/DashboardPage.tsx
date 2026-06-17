@@ -4,15 +4,11 @@ import {
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from 'recharts';
 import { TrendingUp, ShoppingBag, DollarSign, ArrowUpRight, ArrowDownRight, Minus, FileSpreadsheet } from 'lucide-react';
-import type { Transaction, Product, PeriodTab } from '../types';
+import type { Transaction, PeriodTab } from '../types';
 import { formatRupiah } from '../utils/format';
 import { useApp } from '../context/AppContext';
+import { useStore } from '../context/StoreContext';
 import ExportModal from '../components/ExportModal';
-
-interface DashboardPageProps {
-  transactions: Transaction[];
-  products: Product[];
-}
 
 const PIE_COLORS = ['#00C853', '#4ade80', '#86efac', '#6ee7b7', '#bbf7d0'];
 
@@ -47,8 +43,9 @@ const TABS: { id: PeriodTab; label: string }[] = [
   { id: 'monthly', label: 'Bulanan' },
 ];
 
-export default function DashboardPage({ transactions }: DashboardPageProps) {
+export default function DashboardPage() {
   const { darkMode } = useApp();
+  const { transactions } = useStore();
   const [period, setPeriod] = useState<PeriodTab>('daily');
   const [showExport, setShowExport] = useState(false);
   const today = new Date();

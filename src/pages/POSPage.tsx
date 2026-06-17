@@ -4,17 +4,12 @@ import type { Product, CartItem, Transaction } from '../types';
 import { formatRupiah } from '../utils/format';
 import { categories } from '../data/products';
 import { useApp } from '../context/AppContext';
+import { useStore } from '../context/StoreContext';
 import { printReceipt } from '../utils/printReceipt';
 import ReceiptPreview from '../components/ReceiptPreview';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import CameraScanner from '../components/CameraScanner';
 import QuickAddProduct from '../components/QuickAddProduct';
-
-interface POSPageProps {
-  products: Product[];
-  onTransactionComplete: (transaction: Transaction) => void;
-  onAddProduct: (product: Product) => void;
-}
 
 const paymentMethods = [
   { id: 'cash',     label: 'Tunai',    icon: '💵' },
@@ -25,8 +20,9 @@ const paymentMethods = [
 
 type PaymentStep = 'cart' | 'payment' | 'success';
 
-export default function POSPage({ products, onTransactionComplete, onAddProduct }: POSPageProps) {
+export default function POSPage() {
   const { settings } = useApp();
+  const { products, addProduct, addTransaction } = useStore();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Semua');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -163,7 +159,7 @@ export default function POSPage({ products, onTransactionComplete, onAddProduct 
     };
 
     setLastTransaction(transaction);
-    onTransactionComplete(transaction);
+    addTransaction(transaction).catch(console.error);
     setPaymentStep('success');
 
     // Auto-print jika diaktifkan di pengaturan
@@ -688,7 +684,7 @@ export default function POSPage({ products, onTransactionComplete, onAddProduct 
         <QuickAddProduct
           barcode={unknownBarcode}
           onAdd={(product) => {
-            onAddProduct(product);
+            addProduct(product).catch(console.error);
             // Langsung masukkan ke keranjang
             setCart((prev) => [...prev, { product, quantity: 1 }]);
             showScanFeedback('success', `${product.name} ditambahkan!`);

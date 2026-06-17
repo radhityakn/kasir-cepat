@@ -1,11 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Search, Filter, ChevronDown, ChevronUp, Receipt } from 'lucide-react';
-import type { Transaction } from '../types';
 import { formatRupiah, formatDateTime } from '../utils/format';
-
-interface HistoryPageProps {
-  transactions: Transaction[];
-}
+import { useStore } from '../context/StoreContext';
 
 const paymentLabels: Record<string, string> = {
   cash: 'Tunai',
@@ -21,7 +17,8 @@ const paymentColors: Record<string, string> = {
   card: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
 };
 
-export default function HistoryPage({ transactions }: HistoryPageProps) {
+export default function HistoryPage() {
+  const { transactions } = useStore();
   const [search, setSearch] = useState('');
   const [filterMethod, setFilterMethod] = useState('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);

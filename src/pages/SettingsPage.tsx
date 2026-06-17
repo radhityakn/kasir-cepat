@@ -5,6 +5,7 @@ import {
   Barcode, Wifi, WifiOff, Clock, Edit3, RotateCcw, Zap,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 import { formatDateTime } from '../utils/format';
 
 type ModalType =
@@ -82,6 +83,7 @@ const STATUS_CONFIG = {
 
 export default function SettingsPage() {
   const { darkMode, toggleDarkMode, settings, updateSettings, scanner, updateScannerLabel, resetScanner } = useApp();
+  const { signOut, user } = useAuth();
   const [activeModal, setActiveModal] = useState<ModalType>(null);
 
   // form states
@@ -582,11 +584,13 @@ export default function SettingsPage() {
               <LogOut size={24} className="text-red-500" />
             </div>
           </div>
-          <p className="text-center text-sm text-gray-600 dark:text-gray-300">Yakin ingin keluar dari sesi kasir ini?</p>
+          <p className="text-center text-sm text-gray-600 dark:text-gray-300">
+            Yakin ingin keluar dari akun <span className="font-semibold">{user?.email}</span>?
+          </p>
           <div className="flex gap-2">
             <button onClick={closeModal} className="btn-secondary flex-1">Batal</button>
             <button
-              onClick={() => { closeModal(); alert('Sesi kasir telah diakhiri. Sampai jumpa!'); }}
+              onClick={() => { closeModal(); signOut(); }}
               className="flex-1 bg-red-500 hover:bg-red-600 text-white font-semibold py-2.5 px-5 rounded-xl active:scale-95 transition-all duration-150 flex items-center justify-center gap-2"
             >
               <LogOut size={16} />Keluar

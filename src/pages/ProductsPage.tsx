@@ -3,13 +3,7 @@ import { Search, Plus, Edit2, Trash2, Package, X, Barcode, RefreshCw } from 'luc
 import type { Product } from '../types';
 import { formatRupiah } from '../utils/format';
 import { categories, generateBarcode } from '../data/products';
-
-interface ProductsPageProps {
-  products: Product[];
-  onAddProduct: (product: Product) => void;
-  onUpdateProduct: (product: Product) => void;
-  onDeleteProduct: (id: string) => void;
-}
+import { useStore } from '../context/StoreContext';
 
 const EMOJI_OPTIONS = ['🍳','🍜','🍚','🍗','🧋','🥑','🍊','☕','💧','🥔','🥜','🧆','🚬','🧼','🧴','🍕','🍔','🌮','🥗','🍰'];
 
@@ -23,7 +17,8 @@ const emptyForm = (): Omit<Product, 'id' | 'sold'> => ({
   stock: 0,
 });
 
-export default function ProductsPage({ products, onAddProduct, onUpdateProduct, onDeleteProduct }: ProductsPageProps) {
+export default function ProductsPage() {
+  const { products, addProduct, updateProduct, deleteProduct } = useStore();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Semua');
   const [showModal, setShowModal] = useState(false);
@@ -74,9 +69,9 @@ export default function ProductsPage({ products, onAddProduct, onUpdateProduct, 
     }
 
     if (editingProduct) {
-      onUpdateProduct({ ...editingProduct, ...form });
+      updateProduct({ ...editingProduct, ...form }).catch(console.error);
     } else {
-      onAddProduct({ ...form, id: `p${Date.now()}`, sold: 0 });
+      addProduct({ ...form, id: `p${Date.now()}`, sold: 0 }).catch(console.error);
     }
     setShowModal(false);
   };
@@ -162,7 +157,7 @@ export default function ProductsPage({ products, onAddProduct, onUpdateProduct, 
                   {deleteConfirm === product.id ? (
                     <div className="flex gap-1">
                       <button
-                        onClick={() => { onDeleteProduct(product.id); setDeleteConfirm(null); }}
+                        onClick={() => { deleteProduct(product.id).catch(console.error); setDeleteConfirm(null); }}
                         className="text-xs bg-red-500 text-white px-2 py-1 rounded-lg hover:bg-red-600"
                       >
                         Hapus
