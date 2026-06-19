@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Search, Filter, ChevronDown, ChevronUp, Receipt } from 'lucide-react';
 import type { Transaction } from '../types';
-import { formatRupiah, formatDateTime } from '../utils/format';
+import { formatRupiah } from '../utils/format';
 
 interface HistoryPageProps {
   transactions: Transaction[];
@@ -125,13 +125,15 @@ export default function HistoryPage({ transactions }: HistoryPageProps) {
                     </div>
                     <div className="flex-1 min-w-0 text-left">
                       <div className="flex items-center gap-2">
-                        <p className="text-sm font-bold text-gray-800 dark:text-gray-100">{transaction.id}</p>
+                        <p className="text-sm font-bold text-gray-800 dark:text-gray-100">
+                          {`TRX/${new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }).format(transaction.date).replace(/ /g, '')}/${new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }).format(transaction.date).replace(':', '.')}`}
+                        </p>
                         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${paymentColors[transaction.paymentMethod]}`}>
                           {paymentLabels[transaction.paymentMethod]}
                         </span>
                       </div>
                       <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                        {formatDateTime(transaction.date)}
+                        {transaction.id.slice(0, 8)}…
                         {transaction.customer && ` · ${transaction.customer}`}
                       </p>
                     </div>
