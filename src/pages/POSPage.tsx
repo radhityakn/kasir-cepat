@@ -4,6 +4,7 @@ import type { Product, CartItem, Transaction } from '../types';
 import { formatRupiah } from '../utils/format';
 import { categories } from '../data/products';
 import { useApp } from '../context/AppContext';
+import { useStoreRole } from '../context/StoreContext';
 import { printReceipt } from '../utils/printReceipt';
 import ReceiptPreview from '../components/ReceiptPreview';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
@@ -27,6 +28,7 @@ type PaymentStep = 'cart' | 'payment' | 'success';
 
 export default function POSPage({ products, onTransactionComplete, onAddProduct }: POSPageProps) {
   const { settings } = useApp();
+  const { membership } = useStoreRole();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Semua');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -157,7 +159,7 @@ export default function POSPage({ products, onTransactionComplete, onAddProduct 
       paymentMethod,
       amountPaid: paid,
       change: paid - grandTotal,
-      cashier: settings.cashierName,
+      cashier: membership?.nama ?? settings.cashierName,
       date: new Date(),
       status: 'completed',
     };
@@ -170,10 +172,10 @@ export default function POSPage({ products, onTransactionComplete, onAddProduct 
     if (settings.autoPrint) {
       setTimeout(() => {
         printReceipt(transaction, {
-          storeName: settings.storeName,
-          address: settings.address,
-          phone: settings.phone,
-          cashierName: settings.cashierName,
+          storeName: membership?.storeName ?? settings.storeName,
+          address: membership?.storeAlamat ?? settings.address,
+          phone: membership?.storeTelepon ?? settings.phone,
+          cashierName: membership?.nama ?? settings.cashierName,
         });
       }, 300);
     }
