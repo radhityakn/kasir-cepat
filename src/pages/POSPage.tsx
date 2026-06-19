@@ -308,7 +308,7 @@ export default function POSPage({ products, onTransactionComplete, onAddProduct 
       </div>
 
       {/* ── Cart Panel ── */}
-      <div className="md:w-80 lg:w-96 bg-white dark:bg-gray-800 flex flex-col border-l border-gray-100 dark:border-gray-700 md:min-h-screen">
+      <div className="md:w-80 lg:w-96 bg-white dark:bg-gray-800 flex flex-col border-l border-gray-100 dark:border-gray-700 md:min-h-screen pb-20 md:pb-0">
 
         {/* CART STEP */}
         {paymentStep === 'cart' && (
