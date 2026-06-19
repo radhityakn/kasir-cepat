@@ -20,18 +20,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Ambil session aktif saat load
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+    // Ambil session aktif saat pertama load
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s);
+      setUser(s?.user ?? null);
       setLoading(false);
     });
 
-    // Listen perubahan auth state
+    // Listen perubahan auth state (login, logout, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
+      (_event, s) => {
+        setSession(s);
+        setUser(s?.user ?? null);
         setLoading(false);
       }
     );
@@ -40,13 +40,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password });
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail || !password) {
+      return { error: 'Email dan password wajib diisi' };
+    }
+    if (password.length < 6) {
+      return { error: 'Password minimal 6 karakter' };
+    }
+
+    const { error } = await supabase.auth.signUp({
+      email: trimmedEmail,
+      password,
+    });
     return { error: error?.message ?? null };
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error?.message ?? null };
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail || !password) {
+      return { error: 'Email dan password wajib diisi' };
+    }
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: trimmedEmail,
+      password,
+    });
+
+    if (error) {
+      // Translate common Supabase auth errors to Indonesian
+      if (error.message.includes('Invalid login credentials')) {
+        return { error: 'Email atau password salah' };
+      }
+      if (error.message.includes('Email not confirmed')) {
+        return { error: 'Email belum dikonfirmasi. Cek inbox kamu.' };
+      }
+      if (error.message.includes('rate limit')) {
+        return { error: 'Terlalu banyak percobaan login. Coba lagi nanti.' };
+      }
+      return { error: error.message };
+    }
+    return { error: null };
   };
 
   const signOut = async () => {

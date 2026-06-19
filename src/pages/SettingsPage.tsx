@@ -3,14 +3,16 @@ import {
   Store, User, Bell, Shield, Printer, ChevronRight, Moon, Sun,
   X, Check, MapPin, Phone, Eye, EyeOff, LogOut,
   Barcode, Wifi, WifiOff, Clock, Edit3, RotateCcw, Zap,
+  Users, Copy, Trash2, KeyRound,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
+import { useStoreRole } from '../context/StoreContext';
 import { formatDateTime } from '../utils/format';
 
 type ModalType =
   | 'store-info' | 'printer' | 'profile' | 'security'
-  | 'notification' | 'scanner' | 'logout' | null;
+  | 'notification' | 'scanner' | 'logout' | 'team' | null;
 
 function Modal({ open, onClose, title, children }: {
   open: boolean; onClose: () => void; title: string; children: React.ReactNode;
@@ -83,8 +85,12 @@ const STATUS_CONFIG = {
 
 export default function SettingsPage() {
   const { darkMode, toggleDarkMode, settings, updateSettings, scanner, updateScannerLabel, resetScanner } = useApp();
-  const { signOut, user } = useAuth();
+  const { signOut } = useAuth();
+  const { membership, members, invites, isOwner, createInvite, removeMember } = useStoreRole();
   const [activeModal, setActiveModal] = useState<ModalType>(null);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   // form states
   const [storeForm, setStoreForm]     = useState({ storeName: settings.storeName, address: settings.address, phone: settings.phone });
@@ -143,7 +149,8 @@ export default function SettingsPage() {
     {
       title: 'Toko',
       items: [
-        { icon: Store,   label: 'Informasi Toko',    desc: settings.storeName, modal: 'store-info' as ModalType },
+        { icon: Store,   label: 'Informasi Toko',    desc: membership?.storeName ?? settings.storeName, modal: 'store-info' as ModalType },
+        ...(isOwner ? [{ icon: Users, label: 'Tim & Undangan', desc: `${members.length} anggota`, modal: 'team' as ModalType }] : []),
         { icon: Printer, label: 'Pengaturan Printer', desc: settings.printerName, modal: 'printer' as ModalType },
       ],
     },
@@ -175,14 +182,14 @@ export default function SettingsPage() {
         {/* Profile Card */}
         <div className="card p-4 flex items-center gap-4">
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white text-2xl font-bold shadow-sm flex-shrink-0">
-            {settings.cashierName.charAt(0).toUpperCase()}
+            {(membership?.nama ?? settings.cashierName).charAt(0).toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-bold text-gray-900 dark:text-white truncate">{settings.storeName}</p>
-            <p className="text-xs text-gray-400 truncate">{settings.address || 'Belum ada alamat'}</p>
+            <p className="font-bold text-gray-900 dark:text-white truncate">{membership?.storeName ?? settings.storeName}</p>
+            <p className="text-xs text-gray-400 truncate">{membership?.storeAlamat || settings.address || 'Belum ada alamat'}</p>
             <div className="flex items-center gap-2 mt-1.5">
-              <span className="text-[10px] bg-primary-50 text-brand font-semibold px-2 py-0.5 rounded-full dark:bg-primary-900/30">{settings.cashierName}</span>
-              <span className="text-[10px] bg-green-50 text-green-600 font-semibold px-2 py-0.5 rounded-full dark:bg-green-900/30 dark:text-green-400">Aktif</span>
+              <span className="text-[10px] bg-primary-50 text-brand font-semibold px-2 py-0.5 rounded-full dark:bg-primary-900/30">{membership?.nama ?? settings.cashierName}</span>
+              <span className="text-[10px] bg-green-50 text-green-600 font-semibold px-2 py-0.5 rounded-full dark:bg-green-900/30 dark:text-green-400 capitalize">{membership?.role ?? 'Aktif'}</span>
             </div>
           </div>
         </div>
@@ -576,6 +583,90 @@ export default function SettingsPage() {
         </div>
       </Modal>
 
+      {/* ── Modal: Tim & Undangan (Owner only) ── */}
+      <Modal open={activeModal === 'team'} onClose={closeModal} title="Tim & Undangan">
+        <div className="space-y-4">
+          {/* Members list */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Anggota Toko</p>
+            <div className="space-y-2">
+              {members.map((m) => (
+                <div key={m.id} className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+                  <div className="w-8 h-8 rounded-full bg-brand/10 flex items-center justify-center text-brand font-bold text-sm">
+                    {m.nama.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{m.nama}</p>
+                    <p className="text-xs text-gray-400 capitalize">{m.role}</p>
+                  </div>
+                  {m.role === 'cashier' && (
+                    <button
+                      onClick={async () => { await removeMember(m.id); }}
+                      className="text-red-400 hover:text-red-600 transition-colors p-1"
+                      aria-label={`Hapus ${m.nama}`}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Invites */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Kode Undangan</p>
+              <button
+                onClick={async () => {
+                  setInviteLoading(true);
+                  setInviteError(null);
+                  const { error: err } = await createInvite();
+                  if (err) setInviteError(err);
+                  setInviteLoading(false);
+                }}
+                disabled={inviteLoading}
+                className="text-xs font-semibold text-brand hover:text-brand-dark transition-colors flex items-center gap-1 disabled:opacity-50"
+              >
+                <KeyRound size={12} />
+                {inviteLoading ? 'Membuat...' : 'Buat Baru'}
+              </button>
+            </div>
+
+            {inviteError && (
+              <p className="text-xs text-red-500 mb-2">{inviteError}</p>
+            )}
+
+            {invites.length === 0 ? (
+              <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-3">Belum ada kode undangan</p>
+            ) : (
+              <div className="space-y-2">
+                {invites.filter((i) => !i.usedAt).map((inv) => (
+                  <div key={inv.id} className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+                    <code className="text-sm font-mono font-bold text-gray-800 dark:text-gray-100 flex-1 tracking-widest">
+                      {inv.code}
+                    </code>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(inv.code);
+                        setCopiedCode(inv.code);
+                        setTimeout(() => setCopiedCode(null), 2000);
+                      }}
+                      className="text-gray-400 hover:text-brand transition-colors p-1"
+                      aria-label="Salin kode"
+                    >
+                      {copiedCode === inv.code ? <Check size={14} className="text-brand" /> : <Copy size={14} />}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button onClick={closeModal} className="btn-primary w-full mt-2">Selesai</button>
+        </div>
+      </Modal>
+
       {/* ── Modal: Logout ── */}
       <Modal open={activeModal === 'logout'} onClose={closeModal} title="Keluar">
         <div className="space-y-4">
@@ -584,13 +675,11 @@ export default function SettingsPage() {
               <LogOut size={24} className="text-red-500" />
             </div>
           </div>
-          <p className="text-center text-sm text-gray-600 dark:text-gray-300">
-            Yakin ingin keluar dari akun <span className="font-semibold">{user?.email}</span>?
-          </p>
+          <p className="text-center text-sm text-gray-600 dark:text-gray-300">Yakin ingin keluar dari sesi kasir ini?</p>
           <div className="flex gap-2">
             <button onClick={closeModal} className="btn-secondary flex-1">Batal</button>
             <button
-              onClick={() => { closeModal(); signOut(); }}
+              onClick={async () => { closeModal(); await signOut(); }}
               className="flex-1 bg-red-500 hover:bg-red-600 text-white font-semibold py-2.5 px-5 rounded-xl active:scale-95 transition-all duration-150 flex items-center justify-center gap-2"
             >
               <LogOut size={16} />Keluar

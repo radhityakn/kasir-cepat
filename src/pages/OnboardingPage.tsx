@@ -1,243 +1,273 @@
 import { useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
-import { Store, User, MapPin, Phone, ArrowRight, Loader2, UserPlus } from 'lucide-react';
-import { useApp } from '../context/AppContext';
-import { useStoreRole } from '../hooks/useStoreRole';
+import { Store, Users, ArrowRight, KeyRound, LogOut } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { useStoreRole } from '../context/StoreContext';
+import { validateStoreName, validatePersonName, validateInviteCode, sanitizeText, sanitizePhone } from '../lib/validation';
 
-type OnboardingMode = 'choose' | 'create' | 'join';
+type Tab = 'owner' | 'cashier';
 
 export default function OnboardingPage() {
-  const { completeOnboarding } = useApp();
+  const { signOut, user } = useAuth();
   const { createStore, joinStore } = useStoreRole();
-  const navigate = useNavigate();
-
-  const [mode, setMode] = useState<OnboardingMode>('choose');
-  const [storeName, setStoreName] = useState('');
-  const [cashierName, setCashierName] = useState('');
-  const [address, setAddress] = useState('');
-  const [phone, setPhone] = useState('');
-  const [inviteCode, setInviteCode] = useState('');
-  const [error, setError] = useState('');
+  const [tab, setTab] = useState<Tab>('owner');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // ── Owner: buat toko baru ──
+  // Owner form state
+  const [namaToko, setNamaToko] = useState('');
+  const [namaPemilik, setNamaPemilik] = useState('');
+  const [alamat, setAlamat] = useState('');
+  const [telepon, setTelepon] = useState('');
+
+  // Cashier form state
+  const [inviteCode, setInviteCode] = useState('');
+  const [namaKasir, setNamaKasir] = useState('');
+
   const handleCreateStore = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError(null);
 
-    if (!storeName.trim()) { setError('Nama toko wajib diisi'); return; }
-    if (!cashierName.trim()) { setError('Nama kamu wajib diisi'); return; }
+    const storeCheck = validateStoreName(namaToko);
+    if (!storeCheck.valid) { setError(storeCheck.error); return; }
+
+    const nameCheck = validatePersonName(namaPemilik);
+    if (!nameCheck.valid) { setError(nameCheck.error); return; }
 
     setLoading(true);
-    try {
-      await createStore({
-        storeName: storeName.trim(),
-        address: address.trim(),
-        phone: phone.trim(),
-        ownerName: cashierName.trim(),
-      });
-      await completeOnboarding({
-        storeName: storeName.trim(),
-        cashierName: cashierName.trim(),
-        address: address.trim(),
-        phone: phone.trim(),
-      });
-      navigate({ to: '/' });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal membuat toko. Coba lagi.');
-      setLoading(false);
-    }
+    const { error: err } = await createStore({
+      namaToko: sanitizeText(namaToko),
+      namaPemilik: sanitizeText(namaPemilik),
+      alamat: sanitizeText(alamat) || undefined,
+      telepon: sanitizePhone(telepon) || undefined,
+    });
+
+    if (err) setError(err);
+    setLoading(false);
+    // If success, useStoreRole will re-fetch membership → AuthGuard will redirect to app
   };
 
-  // ── Kasir: join toko via kode ──
   const handleJoinStore = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError(null);
 
-    if (!inviteCode.trim()) { setError('Kode undangan wajib diisi'); return; }
-    if (!cashierName.trim()) { setError('Nama kamu wajib diisi'); return; }
+    const codeCheck = validateInviteCode(inviteCode);
+    if (!codeCheck.valid) { setError(codeCheck.error); return; }
+
+    const nameCheck = validatePersonName(namaKasir);
+    if (!nameCheck.valid) { setError(nameCheck.error); return; }
 
     setLoading(true);
-    try {
-      await joinStore({
-        inviteCode: inviteCode.trim(),
-        displayName: cashierName.trim(),
-      });
-      await completeOnboarding({
-        storeName: '', // akan diisi dari store data
-        cashierName: cashierName.trim(),
-        address: '',
-        phone: '',
-      });
-      navigate({ to: '/' });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal bergabung. Coba lagi.');
-      setLoading(false);
-    }
+    const { error: err } = await joinStore({
+      code: inviteCode.trim(),
+      nama: sanitizeText(namaKasir),
+    });
+
+    if (err) setError(err);
+    setLoading(false);
   };
 
-  // ── Pilih mode ──
-  if (mode === 'choose') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
-        <div className="w-full max-w-sm">
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-brand rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-              <Store size={28} className="text-white" />
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Selamat Datang!</h1>
-            <p className="text-sm text-gray-400 mt-2">Pilih cara kamu menggunakan Kasir Cepat</p>
-          </div>
-
-          <div className="space-y-3">
-            <button
-              onClick={() => setMode('create')}
-              className="card w-full p-5 flex items-center gap-4 hover:ring-2 hover:ring-brand/30 transition-all text-left"
-            >
-              <div className="w-12 h-12 rounded-xl bg-green-50 dark:bg-green-900/20 flex items-center justify-center flex-shrink-0">
-                <Store size={22} className="text-green-600" />
-              </div>
-              <div>
-                <p className="font-semibold text-gray-900 dark:text-white text-sm">Buat Toko Baru</p>
-                <p className="text-xs text-gray-400 mt-0.5">Saya pemilik toko, mau kelola sendiri</p>
-              </div>
-            </button>
-
-            <button
-              onClick={() => setMode('join')}
-              className="card w-full p-5 flex items-center gap-4 hover:ring-2 hover:ring-brand/30 transition-all text-left"
-            >
-              <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center flex-shrink-0">
-                <UserPlus size={22} className="text-blue-600" />
-              </div>
-              <div>
-                <p className="font-semibold text-gray-900 dark:text-white text-sm">Gabung ke Toko</p>
-                <p className="text-xs text-gray-400 mt-0.5">Saya kasir, punya kode undangan dari pemilik</p>
-              </div>
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Form buat toko (owner) ──
-  if (mode === 'create') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
-        <div className="w-full max-w-sm">
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-brand rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-              <Store size={28} className="text-white" />
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Buat Toko</h1>
-            <p className="text-sm text-gray-400 mt-1">Isi informasi toko kamu</p>
-          </div>
-
-          <form onSubmit={handleCreateStore} className="card p-6 space-y-4">
-            <div>
-              <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5 block">
-                Nama Toko <span className="text-red-400">*</span>
-              </label>
-              <div className="relative">
-                <Store size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input type="text" value={storeName} onChange={(e) => setStoreName(e.target.value)} placeholder="Misal: Warung Pak Joko" className="input-field pl-10" autoFocus />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5 block">
-                Nama Kamu <span className="text-red-400">*</span>
-              </label>
-              <div className="relative">
-                <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input type="text" value={cashierName} onChange={(e) => setCashierName(e.target.value)} placeholder="Nama pemilik" className="input-field pl-10" />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5 block">
-                Alamat <span className="text-gray-300 text-[10px]">(opsional)</span>
-              </label>
-              <div className="relative">
-                <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input type="text" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Jl. Merdeka No. 1" className="input-field pl-10" />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5 block">
-                No. Telepon <span className="text-gray-300 text-[10px]">(opsional)</span>
-              </label>
-              <div className="relative">
-                <Phone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="081234567890" className="input-field pl-10" />
-              </div>
-            </div>
-
-            {error && <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-xl">{error}</div>}
-
-            <button type="submit" disabled={loading} className="btn-primary w-full py-3 text-base disabled:opacity-50 flex items-center justify-center gap-2">
-              {loading ? <Loader2 size={18} className="animate-spin" /> : <><ArrowRight size={16} /> Buat Toko</>}
-            </button>
-
-            <button type="button" onClick={() => { setMode('choose'); setError(''); }} className="w-full text-center text-sm text-gray-400 hover:text-gray-600">
-              ← Kembali
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Form join toko (kasir) ──
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-blue-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-            <UserPlus size={28} className="text-white" />
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Gabung ke Toko</h1>
-          <p className="text-sm text-gray-400 mt-1">Masukkan kode undangan dari pemilik toko</p>
+      <div className="w-full max-w-md">
+        {/* Header */}
+        <div className="text-center mb-6">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Selamat Datang!</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            {user?.email} — Pilih cara untuk memulai
+          </p>
         </div>
 
-        <form onSubmit={handleJoinStore} className="card p-6 space-y-4">
-          <div>
-            <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5 block">
-              Kode Undangan <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              value={inviteCode}
-              onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-              placeholder="Misal: A1B2C3D4"
-              className="input-field text-center text-lg font-mono tracking-widest"
-              maxLength={8}
-              autoFocus
-            />
+        {/* Card */}
+        <div className="card p-6">
+          {/* Tab toggle */}
+          <div className="flex bg-gray-100 dark:bg-gray-700 rounded-xl p-1 mb-6">
+            <button
+              type="button"
+              onClick={() => { setTab('owner'); setError(null); }}
+              className={`flex-1 text-sm font-semibold py-2.5 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                tab === 'owner'
+                  ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400'
+              }`}
+            >
+              <Store size={14} />
+              Buat Toko Baru
+            </button>
+            <button
+              type="button"
+              onClick={() => { setTab('cashier'); setError(null); }}
+              className={`flex-1 text-sm font-semibold py-2.5 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                tab === 'cashier'
+                  ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400'
+              }`}
+            >
+              <Users size={14} />
+              Gabung Toko
+            </button>
           </div>
 
-          <div>
-            <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5 block">
-              Nama Kamu <span className="text-red-400">*</span>
-            </label>
-            <div className="relative">
-              <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input type="text" value={cashierName} onChange={(e) => setCashierName(e.target.value)} placeholder="Nama kasir" className="input-field pl-10" />
-            </div>
-          </div>
+          {/* Owner Form */}
+          {tab === 'owner' && (
+            <form onSubmit={handleCreateStore} className="space-y-4">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                Buat toko baru dan jadi pemilik (owner). Nanti kamu bisa undang kasir.
+              </p>
 
-          {error && <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-xl">{error}</div>}
+              <div>
+                <label className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
+                  Nama Toko *
+                </label>
+                <input
+                  type="text"
+                  value={namaToko}
+                  onChange={(e) => setNamaToko(e.target.value)}
+                  placeholder="Warung Bu Siti"
+                  className="input-field mt-1"
+                  required
+                  maxLength={100}
+                />
+              </div>
 
-          <button type="submit" disabled={loading} className="btn-primary w-full py-3 text-base disabled:opacity-50 flex items-center justify-center gap-2">
-            {loading ? <Loader2 size={18} className="animate-spin" /> : <><UserPlus size={16} /> Gabung</>}
-          </button>
+              <div>
+                <label className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
+                  Nama Pemilik *
+                </label>
+                <input
+                  type="text"
+                  value={namaPemilik}
+                  onChange={(e) => setNamaPemilik(e.target.value)}
+                  placeholder="Siti Nurhaliza"
+                  className="input-field mt-1"
+                  required
+                  maxLength={100}
+                />
+              </div>
 
-          <button type="button" onClick={() => { setMode('choose'); setError(''); }} className="w-full text-center text-sm text-gray-400 hover:text-gray-600">
-            ← Kembali
-          </button>
-        </form>
+              <div>
+                <label className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
+                  Alamat
+                </label>
+                <input
+                  type="text"
+                  value={alamat}
+                  onChange={(e) => setAlamat(e.target.value)}
+                  placeholder="Jl. Pahlawan No. 5, Malang"
+                  className="input-field mt-1"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
+                  Telepon
+                </label>
+                <input
+                  type="tel"
+                  value={telepon}
+                  onChange={(e) => setTelepon(e.target.value)}
+                  placeholder="0341-7772345"
+                  className="input-field mt-1"
+                />
+              </div>
+
+              {error && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3">
+                  <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="btn-primary w-full py-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Membuat toko...
+                  </span>
+                ) : (
+                  <span className="flex items-center justify-center gap-2">
+                    <ArrowRight size={16} />
+                    Buat Toko & Mulai
+                  </span>
+                )}
+              </button>
+            </form>
+          )}
+
+          {/* Cashier Form */}
+          {tab === 'cashier' && (
+            <form onSubmit={handleJoinStore} className="space-y-4">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                Minta kode undangan dari pemilik toko, lalu masukkan di bawah.
+              </p>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
+                  Kode Undangan (8 karakter) *
+                </label>
+                <input
+                  type="text"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value.slice(0, 8))}
+                  placeholder="a1b2c3d4"
+                  className="input-field mt-1 font-mono text-center text-lg tracking-widest"
+                  required
+                  maxLength={8}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
+                  Nama Kamu *
+                </label>
+                <input
+                  type="text"
+                  value={namaKasir}
+                  onChange={(e) => setNamaKasir(e.target.value)}
+                  placeholder="Ahmad Fauzi"
+                  className="input-field mt-1"
+                  required
+                  maxLength={100}
+                />
+              </div>
+
+              {error && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3">
+                  <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="btn-primary w-full py-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Bergabung...
+                  </span>
+                ) : (
+                  <span className="flex items-center justify-center gap-2">
+                    <KeyRound size={16} />
+                    Gabung Toko
+                  </span>
+                )}
+              </button>
+            </form>
+          )}
+        </div>
+
+        {/* Logout link */}
+        <button
+          onClick={signOut}
+          className="flex items-center justify-center gap-1.5 text-sm text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 mt-4 mx-auto transition-colors"
+        >
+          <LogOut size={14} />
+          Keluar dari akun
+        </button>
       </div>
     </div>
   );

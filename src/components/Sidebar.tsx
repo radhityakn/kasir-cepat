@@ -1,34 +1,24 @@
-import { Link, useRouterState } from '@tanstack/react-router';
-import { ShoppingCart, History, Package, LayoutDashboard, Settings, Users } from 'lucide-react';
-import { useApp } from '../context/AppContext';
-import { useStoreRole } from '../hooks/useStoreRole';
-import type { Role } from '../hooks/useStoreRole';
-import type { LucideIcon } from 'lucide-react';
+import { ShoppingCart, History, Package, LayoutDashboard, Settings } from 'lucide-react';
+import type { Page } from '../types';
+import { useStoreRole } from '../context/StoreContext';
 
-interface NavItem {
-  to: string;
-  label: string;
-  icon: LucideIcon;
-  roles: Role[] | 'all'; // 'all' = semua role bisa lihat
+interface SidebarProps {
+  currentPage: Page;
+  onNavigate: (page: Page) => void;
 }
 
-const navItems: NavItem[] = [
-  { to: '/',          label: 'Kasir',      icon: ShoppingCart,    roles: 'all' },
-  { to: '/history',   label: 'Riwayat',    icon: History,         roles: ['owner'] },
-  { to: '/products',  label: 'Produk',     icon: Package,         roles: ['owner'] },
-  { to: '/dashboard', label: 'Laporan',    icon: LayoutDashboard, roles: ['owner'] },
-  { to: '/team',      label: 'Tim',        icon: Users,           roles: ['owner'] },
-  { to: '/settings',  label: 'Pengaturan', icon: Settings,        roles: 'all' },
+const navItems: { page: Page; label: string; icon: React.ComponentType<{ size?: number; strokeWidth?: number }> }[] = [
+  { page: 'pos', label: 'Kasir', icon: ShoppingCart },
+  { page: 'history', label: 'Riwayat', icon: History },
+  { page: 'products', label: 'Produk', icon: Package },
+  { page: 'dashboard', label: 'Laporan', icon: LayoutDashboard },
+  { page: 'settings', label: 'Pengaturan', icon: Settings },
 ];
 
-export default function Sidebar() {
-  const { settings } = useApp();
-  const { role, membership } = useStoreRole();
-  const { location } = useRouterState();
-
-  const visibleItems = navItems.filter(
-    (item) => item.roles === 'all' || (role && item.roles.includes(role))
-  );
+export default function Sidebar({ currentPage, onNavigate }: SidebarProps) {
+  const { membership } = useStoreRole();
+  const displayName = membership?.nama ?? 'Pengguna';
+  const displayRole = membership?.role === 'owner' ? 'Owner' : 'Kasir';
 
   return (
     <aside className="hidden md:flex flex-col w-64 bg-white dark:bg-gray-800 border-r border-gray-100 dark:border-gray-700 min-h-screen px-4 py-6 transition-colors duration-300">
@@ -38,49 +28,38 @@ export default function Sidebar() {
           <span className="text-white font-bold text-lg">K</span>
         </div>
         <div>
-          <h1 className="font-bold text-gray-900 dark:text-white text-base leading-tight truncate">
-            {membership?.storeName || 'Kasir Cepat'}
-          </h1>
+          <h1 className="font-bold text-gray-900 dark:text-white text-base leading-tight">Kasir Cepat</h1>
           <p className="text-xs text-gray-400">Point of Sale</p>
         </div>
       </div>
 
       {/* Nav items */}
       <nav className="flex flex-col gap-1 flex-1">
-        {visibleItems.map(({ to, label, icon: Icon }) => {
-          const isActive =
-            to === '/'
-              ? location.pathname === '/'
-              : location.pathname.startsWith(to);
-
-          return (
-            <Link
-              key={to}
-              to={to}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-150 w-full text-left ${
-                isActive
-                  ? 'bg-primary-50 text-brand dark:bg-primary-900/20'
-                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-700 dark:hover:text-gray-200'
-              }`}
-            >
-              <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
-              {label}
-            </Link>
-          );
-        })}
+        {navItems.map(({ page, label, icon: Icon }) => (
+          <button
+            key={page}
+            onClick={() => onNavigate(page)}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-150 w-full text-left ${
+              currentPage === page
+                ? 'bg-primary-50 text-brand dark:bg-primary-900/20'
+                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-700 dark:hover:text-gray-200'
+            }`}
+          >
+            <Icon size={20} strokeWidth={currentPage === page ? 2.5 : 2} />
+            {label}
+          </button>
+        ))}
       </nav>
 
       {/* Bottom user info */}
       <div className="mt-auto pt-4 border-t border-gray-100 dark:border-gray-700">
         <div className="flex items-center gap-3 px-3">
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
-            {(membership?.displayName || settings.cashierName || 'U').charAt(0).toUpperCase()}
+            {displayName.charAt(0).toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">
-              {membership?.displayName || settings.cashierName}
-            </p>
-            <p className="text-xs text-gray-400 capitalize">{role || 'Kasir'}</p>
+            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{displayName}</p>
+            <p className="text-xs text-gray-400">{displayRole}</p>
           </div>
         </div>
       </div>

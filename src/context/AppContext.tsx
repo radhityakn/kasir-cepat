@@ -1,71 +1,79 @@
-import { createContext, useContext, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { useScannerDetection } from '../hooks/useScannerDetection';
 import type { ScannerDevice } from '../hooks/useScannerDetection';
-import { useSettings } from '../hooks/useSettings';
-import type { AppSettings } from '../hooks/useSettings';
+
+interface AppSettings {
+  storeName: string;
+  cashierName: string;
+  cashierPin: string;
+  address: string;
+  phone: string;
+  notifLowStock: boolean;
+  notifDailySummary: boolean;
+  autoPrint: boolean;
+  printerName: string;
+}
 
 interface AppContextType {
   darkMode: boolean;
   toggleDarkMode: () => void;
   settings: AppSettings;
-  settingsLoading: boolean;
   updateSettings: (partial: Partial<AppSettings>) => void;
-  isOnboarded: boolean;
-  completeOnboarding: (data: Pick<AppSettings, 'storeName' | 'cashierName' | 'address' | 'phone'>) => Promise<void>;
   scanner: ScannerDevice;
   updateScannerLabel: (label: string) => void;
   resetScanner: () => void;
 }
 
+const defaultSettings: AppSettings = {
+  storeName: 'Warung Bu Siti',
+  cashierName: 'Admin',
+  cashierPin: '1234',
+  address: 'Jl. Merdeka No. 1, Jakarta',
+  phone: '081234567890',
+  notifLowStock: true,
+  notifDailySummary: false,
+  autoPrint: false,
+  printerName: 'Default Printer',
+};
+
 const AppContext = createContext<AppContextType | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const {
-    settings,
-    isLoading: settingsLoading,
-    isOnboarded,
-    updateSettings: updateSettingsRemote,
-  } = useSettings();
+  const [darkMode, setDarkMode] = useState(() => {
+    return localStorage.getItem('darkMode') === 'true';
+  });
+
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    const saved = localStorage.getItem('appSettings');
+    return saved ? { ...defaultSettings, ...JSON.parse(saved) } : defaultSettings;
+  });
 
   const { device: scanner, updateLabel: updateScannerLabel, resetDevice: resetScanner } =
     useScannerDetection();
 
-  // Sync dark mode class ke document
   useEffect(() => {
-    if (settings.darkMode) {
+    if (darkMode) {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
-  }, [settings.darkMode]);
+    localStorage.setItem('darkMode', String(darkMode));
+  }, [darkMode]);
 
-  const toggleDarkMode = () => {
-    updateSettingsRemote({ darkMode: !settings.darkMode }).catch(console.error);
-  };
+  useEffect(() => {
+    localStorage.setItem('appSettings', JSON.stringify(settings));
+  }, [settings]);
+
+  const toggleDarkMode = () => setDarkMode((prev) => !prev);
 
   const updateSettings = (partial: Partial<AppSettings>) => {
-    updateSettingsRemote(partial).catch(console.error);
-  };
-
-  const completeOnboarding = async (data: Pick<AppSettings, 'storeName' | 'cashierName' | 'address' | 'phone'>) => {
-    await updateSettingsRemote({ ...data, onboarded: true });
+    setSettings((prev) => ({ ...prev, ...partial }));
   };
 
   return (
     <AppContext.Provider
-      value={{
-        darkMode: settings.darkMode,
-        toggleDarkMode,
-        settings,
-        settingsLoading,
-        updateSettings,
-        isOnboarded,
-        completeOnboarding,
-        scanner,
-        updateScannerLabel,
-        resetScanner,
-      }}
+      value={{ darkMode, toggleDarkMode, settings, updateSettings, scanner, updateScannerLabel, resetScanner }}
     >
       {children}
     </AppContext.Provider>

@@ -3,7 +3,13 @@ import { Search, Plus, Edit2, Trash2, Package, X, Barcode, RefreshCw } from 'luc
 import type { Product } from '../types';
 import { formatRupiah } from '../utils/format';
 import { categories, generateBarcode } from '../data/products';
-import { useStore } from '../context/StoreContext';
+
+interface ProductsPageProps {
+  products: Product[];
+  onAddProduct: (product: Product) => void;
+  onUpdateProduct: (product: Product) => void;
+  onDeleteProduct: (id: string) => void;
+}
 
 const EMOJI_OPTIONS = ['🍳','🍜','🍚','🍗','🧋','🥑','🍊','☕','💧','🥔','🥜','🧆','🚬','🧼','🧴','🍕','🍔','🌮','🥗','🍰'];
 
@@ -17,8 +23,7 @@ const emptyForm = (): Omit<Product, 'id' | 'sold'> => ({
   stock: 0,
 });
 
-export default function ProductsPage() {
-  const { products, addProduct, updateProduct, deleteProduct } = useStore();
+export default function ProductsPage({ products, onAddProduct, onUpdateProduct, onDeleteProduct }: ProductsPageProps) {
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Semua');
   const [showModal, setShowModal] = useState(false);
@@ -69,9 +74,9 @@ export default function ProductsPage() {
     }
 
     if (editingProduct) {
-      updateProduct({ ...editingProduct, ...form }).catch(console.error);
+      onUpdateProduct({ ...editingProduct, ...form });
     } else {
-      addProduct({ ...form, id: `p${Date.now()}`, sold: 0 }).catch(console.error);
+      onAddProduct({ ...form, id: `p${Date.now()}`, sold: 0 });
     }
     setShowModal(false);
   };
@@ -157,7 +162,7 @@ export default function ProductsPage() {
                   {deleteConfirm === product.id ? (
                     <div className="flex gap-1">
                       <button
-                        onClick={() => { deleteProduct(product.id).catch(console.error); setDeleteConfirm(null); }}
+                        onClick={() => { onDeleteProduct(product.id); setDeleteConfirm(null); }}
                         className="text-xs bg-red-500 text-white px-2 py-1 rounded-lg hover:bg-red-600"
                       >
                         Hapus

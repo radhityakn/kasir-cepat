@@ -1,50 +1,45 @@
-import { useNavigate } from '@tanstack/react-router';
-import { useEffect, useRef } from 'react';
+import type { ReactNode } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useApp } from '../context/AppContext';
-import { useStoreRole } from '../hooks/useStoreRole';
-import { pullFromRemote } from '../lib/syncEngine';
-import { Loader2 } from 'lucide-react';
+import { useStoreRole } from '../context/StoreContext';
+import AuthPage from '../pages/AuthPage';
+import OnboardingPage from '../pages/OnboardingPage';
 
-export default function AuthGuard({ children }: { children: React.ReactNode }) {
+interface AuthGuardProps {
+  children: ReactNode;
+}
+
+/**
+ * AuthGuard — menentukan halaman mana yang ditampilkan berdasarkan state:
+ * 1. Belum login → AuthPage
+ * 2. Login tapi belum punya toko → OnboardingPage
+ * 3. Login + punya toko → children (main app)
+ */
+export default function AuthGuard({ children }: AuthGuardProps) {
   const { user, loading: authLoading } = useAuth();
-  const { isOnboarded, settingsLoading } = useApp();
-  const { isLoading: storeLoading, hasStore } = useStoreRole();
-  const navigate = useNavigate();
-  const hasPulled = useRef(false);
+  const { hasStore, loading: storeLoading } = useStoreRole();
 
-  const loading = authLoading || settingsLoading || storeLoading;
-
-  // Pull data dari Supabase ke IndexedDB saat login
-  useEffect(() => {
-    if (user && !hasPulled.current) {
-      hasPulled.current = true;
-      pullFromRemote(user.id).catch(console.error);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    if (loading) return;
-
-    if (!user) {
-      navigate({ to: '/login' });
-    } else if (!isOnboarded || !hasStore) {
-      navigate({ to: '/onboarding' });
-    }
-  }, [user, loading, isOnboarded, hasStore, navigate]);
-
-  if (loading) {
+  // Loading state — tampilkan spinner sementara cek session/membership
+  if (authLoading || (user && storeLoading)) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-50 dark:bg-gray-900">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 size={32} className="animate-spin text-brand" />
-          <p className="text-sm text-gray-400">Memuat...</p>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="text-center">
+          <div className="w-10 h-10 border-3 border-gray-200 dark:border-gray-700 border-t-brand rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-sm text-gray-400 dark:text-gray-500">Memuat...</p>
         </div>
       </div>
     );
   }
 
-  if (!user || !isOnboarded || !hasStore) return null;
+  // Not logged in → show auth page
+  if (!user) {
+    return <AuthPage />;
+  }
 
+  // Logged in but no store membership → show onboarding
+  if (!hasStore) {
+    return <OnboardingPage />;
+  }
+
+  // Logged in + has store → show main app
   return <>{children}</>;
 }

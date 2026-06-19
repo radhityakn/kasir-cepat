@@ -1,173 +1,182 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { db } from '../lib/db';
-import { enqueue, isOnline } from '../lib/syncEngine';
 import { useAuth } from '../context/AuthContext';
+import { useStoreRole } from '../context/StoreContext';
 import type { Product } from '../types';
 
-function mapLocalToProduct(row: { id: string; barcode: string; name: string; price: number; costPrice: number; category: string; image: string; stock: number; sold: number }): Product {
+/**
+ * Maps a Supabase products row to the app's Product interface.
+ * Supabase column names (snake_case) → app field names (camelCase).
+ */
+function mapRowToProduct(row: Record<string, unknown>): Product {
   return {
-    id: row.id,
-    barcode: row.barcode,
-    name: row.name,
-    price: row.price,
-    costPrice: row.costPrice,
-    category: row.category,
-    image: row.image,
-    stock: row.stock,
-    sold: row.sold,
+    id: row.id as string,
+    barcode: (row.barcode as string) ?? '',
+    name: row.nama as string,
+    price: Number(row.harga_jual),
+    costPrice: Number(row.harga_modal),
+    category: (row.kategori as string) ?? '',
+    image: (row.gambar as string) ?? '🍳',
+    stock: row.stok as number,
+    sold: 0, // not tracked in DB, computed from transactions if needed
   };
 }
 
 export function useProducts() {
   const { user } = useAuth();
-  const queryClient = useQueryClient();
+  const { storeId, isOwner } = useStoreRole();
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const query = useQuery({
-    queryKey: ['products', user?.id],
-    queryFn: async (): Promise<Product[]> => {
-      if (await isOnline()) {
-        try {
-          const { data, error } = await supabase
-            .from('products')
-            .select('id, barcode, name, price, cost_price, category, image, stock, sold, updated_at')
-            .order('created_at', { ascending: false });
+  // ── Fetch products ─────────────────────────────────────────
+  const fetchProducts = useCallback(async () => {
+    if (!user || !storeId) {
+      setProducts([]);
+      setLoading(false);
+      return;
+    }
 
-          if (!error && data) {
-            for (const row of data) {
-              const p = row as Record<string, unknown>;
-              await db.products.put({
-                id: p.id as string,
-                userId: user!.id,
-                barcode: p.barcode as string,
-                name: p.name as string,
-                price: p.price as number,
-                costPrice: p.cost_price as number,
-                category: p.category as string,
-                image: p.image as string,
-                stock: p.stock as number,
-                sold: p.sold as number,
-                updatedAt: p.updated_at as string,
-                _synced: true,
-                _deleted: false,
-              });
-            }
+    setLoading(true);
+    setError(null);
 
-            return data.map((row) => {
-              const p = row as Record<string, unknown>;
-              return mapLocalToProduct({
-                id: p.id as string,
-                barcode: p.barcode as string,
-                name: p.name as string,
-                price: p.price as number,
-                costPrice: p.cost_price as number,
-                category: p.category as string,
-                image: p.image as string,
-                stock: p.stock as number,
-                sold: p.sold as number,
-              });
-            });
-          }
-        } catch {
-          // Fallback ke IndexedDB
-        }
+    const { data, error: fetchErr } = await supabase
+      .from('products')
+      .select('id, nama, kategori, harga_jual, harga_modal, stok, barcode, gambar')
+      .eq('store_id', storeId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false });
+
+    if (fetchErr) {
+      setError(fetchErr.message);
+      setLoading(false);
+      return;
+    }
+
+    setProducts((data ?? []).map((row) => mapRowToProduct(row as Record<string, unknown>)));
+    setLoading(false);
+  }, [user, storeId]);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
+
+  // ── Add product (owner only) ───────────────────────────────
+  const addProduct = async (product: Omit<Product, 'id' | 'sold'>): Promise<{ error: string | null }> => {
+    if (!storeId) return { error: 'Belum tergabung di toko' };
+    if (!isOwner) return { error: 'Hanya owner yang bisa menambah produk' };
+
+    // Client-side validation
+    const nama = product.name.trim();
+    if (!nama || nama.length > 150) {
+      return { error: 'Nama produk wajib diisi (maks 150 karakter)' };
+    }
+    if (product.price < 0) {
+      return { error: 'Harga jual tidak boleh negatif' };
+    }
+    if (product.costPrice < 0) {
+      return { error: 'Harga modal tidak boleh negatif' };
+    }
+    if (product.stock < 0) {
+      return { error: 'Stok tidak boleh negatif' };
+    }
+
+    const barcode = product.barcode?.trim().replace(/[^a-zA-Z0-9]/g, '') || null;
+
+    const { error: insertErr } = await supabase.from('products').insert({
+      store_id: storeId,
+      nama,
+      kategori: product.category?.trim() || null,
+      harga_jual: product.price,
+      harga_modal: product.costPrice,
+      stok: product.stock,
+      barcode,
+      gambar: product.image || '🍳',
+    });
+
+    if (insertErr) {
+      if (insertErr.code === '23505' && insertErr.message.includes('barcode')) {
+        return { error: 'Barcode sudah digunakan produk lain di toko ini' };
       }
+      return { error: insertErr.message };
+    }
 
-      // Offline atau error: baca dari IndexedDB
-      const local = await db.products
-        .where('userId')
-        .equals(user!.id)
-        .and((p) => !p._deleted)
-        .reverse()
-        .sortBy('updatedAt');
+    await fetchProducts();
+    return { error: null };
+  };
 
-      return local.map(mapLocalToProduct);
-    },
-    enabled: !!user,
-  });
+  // ── Update product (owner only) ────────────────────────────
+  const updateProduct = async (product: Product): Promise<{ error: string | null }> => {
+    if (!storeId) return { error: 'Belum tergabung di toko' };
+    if (!isOwner) return { error: 'Hanya owner yang bisa mengedit produk' };
 
-  const addMutation = useMutation({
-    mutationFn: async (product: Omit<Product, 'id'> & { id?: string }) => {
-      const id = product.id || crypto.randomUUID();
-      const now = new Date().toISOString();
+    const nama = product.name.trim();
+    if (!nama || nama.length > 150) {
+      return { error: 'Nama produk wajib diisi (maks 150 karakter)' };
+    }
+    if (product.price < 0) {
+      return { error: 'Harga jual tidak boleh negatif' };
+    }
+    if (product.costPrice < 0) {
+      return { error: 'Harga modal tidak boleh negatif' };
+    }
+    if (product.stock < 0) {
+      return { error: 'Stok tidak boleh negatif' };
+    }
 
-      await db.products.put({
-        id,
-        userId: user!.id,
-        barcode: product.barcode,
-        name: product.name,
-        price: product.price,
-        costPrice: product.costPrice,
-        category: product.category,
-        image: product.image,
-        stock: product.stock,
-        sold: product.sold ?? 0,
-        updatedAt: now,
-        _synced: false,
-        _deleted: false,
-      });
+    const barcode = product.barcode?.trim().replace(/[^a-zA-Z0-9]/g, '') || null;
 
-      await enqueue('insert', 'products', id, {
-        id,
-        user_id: user!.id,
-        barcode: product.barcode,
-        name: product.name,
-        price: product.price,
-        cost_price: product.costPrice,
-        category: product.category,
-        image: product.image,
-        stock: product.stock,
-        sold: product.sold ?? 0,
-      });
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['products'] }),
-  });
+    const { error: updateErr } = await supabase
+      .from('products')
+      .update({
+        nama,
+        kategori: product.category?.trim() || null,
+        harga_jual: product.price,
+        harga_modal: product.costPrice,
+        stok: product.stock,
+        barcode,
+        gambar: product.image || '🍳',
+      })
+      .eq('id', product.id)
+      .eq('store_id', storeId);
 
-  const updateMutation = useMutation({
-    mutationFn: async (product: Product) => {
-      const now = new Date().toISOString();
+    if (updateErr) {
+      if (updateErr.code === '23505' && updateErr.message.includes('barcode')) {
+        return { error: 'Barcode sudah digunakan produk lain di toko ini' };
+      }
+      return { error: updateErr.message };
+    }
 
-      await db.products.update(product.id, {
-        barcode: product.barcode,
-        name: product.name,
-        price: product.price,
-        costPrice: product.costPrice,
-        category: product.category,
-        image: product.image,
-        stock: product.stock,
-        sold: product.sold,
-        updatedAt: now,
-        _synced: false,
-      });
+    await fetchProducts();
+    return { error: null };
+  };
 
-      await enqueue('update', 'products', product.id, {
-        barcode: product.barcode,
-        name: product.name,
-        price: product.price,
-        cost_price: product.costPrice,
-        category: product.category,
-        image: product.image,
-        stock: product.stock,
-        sold: product.sold,
-      });
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['products'] }),
-  });
+  // ── Soft-delete product (owner only) ───────────────────────
+  const deleteProduct = async (id: string): Promise<{ error: string | null }> => {
+    if (!storeId) return { error: 'Belum tergabung di toko' };
+    if (!isOwner) return { error: 'Hanya owner yang bisa menghapus produk' };
 
-  const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      await db.products.update(id, { _deleted: true, _synced: false });
-      await enqueue('delete', 'products', id, {});
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['products'] }),
-  });
+    const { error: delErr } = await supabase
+      .from('products')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('store_id', storeId);
+
+    if (delErr) {
+      return { error: delErr.message };
+    }
+
+    await fetchProducts();
+    return { error: null };
+  };
 
   return {
-    products: query.data ?? [],
-    isLoading: query.isLoading,
-    error: query.error,
-    addProduct: addMutation.mutateAsync,
-    updateProduct: updateMutation.mutateAsync,
-    deleteProduct: deleteMutation.mutateAsync,
+    products,
+    loading,
+    error,
+    addProduct,
+    updateProduct,
+    deleteProduct,
+    refetch: fetchProducts,
   };
 }

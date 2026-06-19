@@ -1,228 +1,216 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { db } from '../lib/db';
-import { enqueue, isOnline } from '../lib/syncEngine';
 import { useAuth } from '../context/AuthContext';
-import type { Transaction } from '../types';
+import { useStoreRole } from '../context/StoreContext';
+import type { Transaction, CartItem } from '../types';
+
+/** Maps Supabase transaction row + items to app's Transaction interface */
+function mapRowToTransaction(
+  tx: Record<string, unknown>,
+  items: Record<string, unknown>[]
+): Transaction {
+  return {
+    id: tx.id as string,
+    items: items.map((item) => {
+      // harga_modal bisa dari join products, fallback ke 0
+      const productData = item.products as Record<string, unknown> | null;
+      const costPrice = productData ? Number(productData.harga_modal ?? 0) : 0;
+
+      return {
+        product: {
+          id: (item.product_id as string) ?? '',
+          barcode: '',
+          name: item.nama_produk as string,
+          price: Number(item.harga_satuan),
+          costPrice,
+          category: '',
+          image: '🍳',
+          stock: 0,
+          sold: 0,
+        },
+        quantity: item.qty as number,
+        notes: (item.catatan as string) ?? undefined,
+      };
+    }),
+    total: Number(tx.subtotal),
+    discount: Number(tx.diskon_nominal),
+    tax: Number(tx.pajak),
+    grandTotal: Number(tx.total),
+    paymentMethod: mapPaymentMethod(tx.metode_bayar as string),
+    amountPaid: Number(tx.bayar),
+    change: Number(tx.kembalian),
+    cashier: '',
+    date: new Date(tx.created_at as string),
+    status: (tx.status as string) === 'void' ? 'cancelled' : 'completed',
+    customer: (tx.nomor_transaksi as string) ?? undefined,
+  };
+}
+
+/** Map DB enum → app type */
+function mapPaymentMethod(dbMethod: string): Transaction['paymentMethod'] {
+  switch (dbMethod) {
+    case 'tunai': return 'cash';
+    case 'qris': return 'qris';
+    case 'transfer': return 'transfer';
+    default: return 'card';
+  }
+}
+
+/** Map app type → DB enum */
+function mapPaymentMethodToDb(appMethod: Transaction['paymentMethod']): string {
+  switch (appMethod) {
+    case 'cash': return 'tunai';
+    case 'qris': return 'qris';
+    case 'transfer': return 'transfer';
+    case 'card': return 'lainnya';
+  }
+}
 
 export function useTransactions() {
   const { user } = useAuth();
-  const queryClient = useQueryClient();
+  const { storeId } = useStoreRole();
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const query = useQuery({
-    queryKey: ['transactions', user?.id],
-    queryFn: async (): Promise<Transaction[]> => {
-      if (await isOnline()) {
-        try {
-          const { data, error } = await supabase
-            .from('transactions')
-            .select('*, transaction_items(*)')
-            .order('created_at', { ascending: false });
+  // ── Fetch transactions ─────────────────────────────────────
+  const fetchTransactions = useCallback(async () => {
+    if (!user || !storeId) {
+      setTransactions([]);
+      setLoading(false);
+      return;
+    }
 
-          if (!error && data) {
-            // Cache ke IndexedDB
-            for (const row of data) {
-              const tx = row as Record<string, unknown>;
-              const items = (tx.transaction_items as Record<string, unknown>[]) ?? [];
-              await db.transactions.put({
-                id: tx.id as string,
-                userId: user!.id,
-                items: items.map((item) => ({
-                  productId: item.product_id as string,
-                  productName: item.product_name as string,
-                  productImage: item.product_image as string,
-                  productPrice: item.product_price as number,
-                  productCostPrice: item.product_cost_price as number,
-                  quantity: item.quantity as number,
-                  notes: item.notes as string | undefined,
-                })),
-                total: tx.total as number,
-                discount: tx.discount as number,
-                tax: tx.tax as number,
-                grandTotal: tx.grand_total as number,
-                paymentMethod: tx.payment_method as string,
-                amountPaid: tx.amount_paid as number,
-                change: tx.change as number,
-                cashier: tx.cashier as string,
-                customer: tx.customer as string | undefined,
-                status: tx.status as string,
-                createdAt: tx.created_at as string,
-                _synced: true,
-              });
-            }
+    setLoading(true);
+    setError(null);
 
-            return data.map((row) => {
-              const tx = row as Record<string, unknown>;
-              const items = (tx.transaction_items as Record<string, unknown>[]) ?? [];
-              return {
-                id: tx.id as string,
-                items: items.map((item: Record<string, unknown>) => ({
-                  product: {
-                    id: item.product_id as string,
-                    barcode: '',
-                    name: item.product_name as string,
-                    price: item.product_price as number,
-                    costPrice: item.product_cost_price as number,
-                    category: '',
-                    image: item.product_image as string,
-                    stock: 0,
-                    sold: 0,
-                  },
-                  quantity: item.quantity as number,
-                  notes: item.notes as string | undefined,
-                })),
-                total: tx.total as number,
-                discount: tx.discount as number,
-                tax: tx.tax as number,
-                grandTotal: tx.grand_total as number,
-                paymentMethod: tx.payment_method as Transaction['paymentMethod'],
-                amountPaid: tx.amount_paid as number,
-                change: tx.change as number,
-                cashier: tx.cashier as string,
-                date: new Date(tx.created_at as string),
-                status: tx.status as Transaction['status'],
-                customer: tx.customer as string | undefined,
-              };
-            });
-          }
-        } catch {
-          // Fallback ke IndexedDB
-        }
+    const { data, error: fetchErr } = await supabase
+      .from('transactions')
+      .select('*, transaction_items(*, products(harga_modal))')
+      .eq('store_id', storeId)
+      .order('created_at', { ascending: false });
+
+    if (fetchErr) {
+      setError(fetchErr.message);
+      setLoading(false);
+      return;
+    }
+
+    const mapped = (data ?? []).map((row) => {
+      const r = row as Record<string, unknown>;
+      const items = (r.transaction_items as Record<string, unknown>[]) ?? [];
+      return mapRowToTransaction(r, items);
+    });
+
+    setTransactions(mapped);
+    setLoading(false);
+  }, [user, storeId]);
+
+  useEffect(() => {
+    fetchTransactions();
+  }, [fetchTransactions]);
+
+  // ── Create transaction via atomic RPC ──────────────────────
+  const addTransaction = async (params: {
+    items: CartItem[];
+    paymentMethod: Transaction['paymentMethod'];
+    amountPaid: number;
+    discountPercent?: number;
+  }): Promise<{ transactionId: string | null; error: string | null }> => {
+    if (!storeId) {
+      return { transactionId: null, error: 'Belum tergabung di toko' };
+    }
+
+    // Client-side validation
+    if (!params.items.length) {
+      return { transactionId: null, error: 'Keranjang kosong' };
+    }
+
+    for (const item of params.items) {
+      if (item.quantity <= 0) {
+        return { transactionId: null, error: `Qty harus lebih dari 0 untuk ${item.product.name}` };
       }
-
-      // Offline: baca dari IndexedDB
-      const local = await db.transactions
-        .where('userId')
-        .equals(user!.id)
-        .reverse()
-        .sortBy('createdAt');
-
-      return local.map((tx) => ({
-        id: tx.id,
-        items: tx.items.map((item) => ({
-          product: {
-            id: item.productId,
-            barcode: '',
-            name: item.productName,
-            price: item.productPrice,
-            costPrice: item.productCostPrice,
-            category: '',
-            image: item.productImage,
-            stock: 0,
-            sold: 0,
-          },
-          quantity: item.quantity,
-          notes: item.notes,
-        })),
-        total: tx.total,
-        discount: tx.discount,
-        tax: tx.tax,
-        grandTotal: tx.grandTotal,
-        paymentMethod: tx.paymentMethod as Transaction['paymentMethod'],
-        amountPaid: tx.amountPaid,
-        change: tx.change,
-        cashier: tx.cashier,
-        date: new Date(tx.createdAt),
-        status: tx.status as Transaction['status'],
-        customer: tx.customer,
-      }));
-    },
-    enabled: !!user,
-  });
-
-  const addMutation = useMutation({
-    mutationFn: async (transaction: Transaction) => {
-      const id = transaction.id || crypto.randomUUID();
-      const now = new Date().toISOString();
-
-      // Simpan ke IndexedDB (instant)
-      await db.transactions.put({
-        id,
-        userId: user!.id,
-        items: transaction.items.map((item) => ({
-          productId: item.product.id,
-          productName: item.product.name,
-          productImage: item.product.image,
-          productPrice: item.product.price,
-          productCostPrice: item.product.costPrice ?? 0,
-          quantity: item.quantity,
-          notes: item.notes,
-        })),
-        total: transaction.total,
-        discount: transaction.discount,
-        tax: transaction.tax,
-        grandTotal: transaction.grandTotal,
-        paymentMethod: transaction.paymentMethod,
-        amountPaid: transaction.amountPaid,
-        change: transaction.change,
-        cashier: transaction.cashier,
-        customer: transaction.customer,
-        status: transaction.status,
-        createdAt: now,
-        _synced: false,
-      });
-
-      // Update stok lokal
-      for (const item of transaction.items) {
-        const localProduct = await db.products.get(item.product.id);
-        if (localProduct) {
-          await db.products.update(item.product.id, {
-            stock: Math.max(0, localProduct.stock - item.quantity),
-            sold: localProduct.sold + item.quantity,
-            _synced: false,
-          });
-        }
+      if (item.quantity > item.product.stock) {
+        return { transactionId: null, error: `Stok ${item.product.name} tidak cukup (sisa ${item.product.stock})` };
       }
+    }
 
-      // Enqueue untuk sync ke Supabase
-      await enqueue('insert', 'transactions', id, {
-        id,
-        user_id: user!.id,
-        total: transaction.total,
-        discount: transaction.discount,
-        tax: transaction.tax,
-        grand_total: transaction.grandTotal,
-        payment_method: transaction.paymentMethod,
-        amount_paid: transaction.amountPaid,
-        change: transaction.change,
-        cashier: transaction.cashier,
-        customer: transaction.customer ?? null,
-        status: transaction.status,
-        created_at: now,
-        items: transaction.items.map((item) => ({
-          product_id: item.product.id,
-          product_name: item.product.name,
-          product_image: item.product.image,
-          product_price: item.product.price,
-          product_cost_price: item.product.costPrice ?? 0,
-          quantity: item.quantity,
-          notes: item.notes ?? null,
-        })),
-      });
+    const diskonPersen = params.discountPercent ?? 0;
+    if (diskonPersen < 0 || diskonPersen > 100) {
+      return { transactionId: null, error: 'Diskon harus antara 0-100%' };
+    }
 
-      // Enqueue stok updates
-      for (const item of transaction.items) {
-        const localProduct = await db.products.get(item.product.id);
-        if (localProduct) {
-          await enqueue('update', 'products', item.product.id, {
-            stock: localProduct.stock,
-            sold: localProduct.sold,
-          });
-        }
+    // Build RPC payload
+    const p_items = params.items.map((item) => ({
+      product_id: item.product.id,
+      qty: item.quantity,
+      catatan: item.notes ?? null,
+    }));
+
+    const { data, error: rpcErr } = await supabase.rpc('create_transaction', {
+      p_items: p_items,
+      p_metode_bayar: mapPaymentMethodToDb(params.paymentMethod),
+      p_bayar: params.amountPaid,
+      p_diskon_persen: diskonPersen,
+    });
+
+    if (rpcErr) {
+      // Translate known RPC exceptions to user-friendly Indonesian
+      const msg = rpcErr.message;
+      if (msg.includes('Stok') && msg.includes('tidak cukup')) {
+        return { transactionId: null, error: msg };
       }
+      if (msg.includes('Keranjang kosong')) {
+        return { transactionId: null, error: 'Keranjang kosong' };
+      }
+      if (msg.includes('Pembayaran kurang')) {
+        return { transactionId: null, error: 'Pembayaran kurang dari total tagihan' };
+      }
+      if (msg.includes('Terlalu banyak transaksi')) {
+        return { transactionId: null, error: 'Terlalu banyak transaksi. Coba lagi dalam 1 menit.' };
+      }
+      if (msg.includes('Produk tidak ditemukan')) {
+        return { transactionId: null, error: 'Salah satu produk tidak ditemukan atau sudah dihapus' };
+      }
+      return { transactionId: null, error: msg };
+    }
 
-      return id;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-    },
-  });
+    await fetchTransactions();
+    return { transactionId: data as string, error: null };
+  };
+
+  // ── Void transaction via atomic RPC (owner only) ───────────
+  const voidTransaction = async (transactionId: string): Promise<{ error: string | null }> => {
+    if (!storeId) return { error: 'Belum tergabung di toko' };
+
+    const { error: rpcErr } = await supabase.rpc('void_transaction', {
+      p_transaction_id: transactionId,
+    });
+
+    if (rpcErr) {
+      const msg = rpcErr.message;
+      if (msg.includes('Hanya owner')) {
+        return { error: 'Hanya owner yang boleh membatalkan transaksi' };
+      }
+      if (msg.includes('sudah dibatalkan')) {
+        return { error: 'Transaksi sudah dibatalkan sebelumnya' };
+      }
+      if (msg.includes('tidak ditemukan')) {
+        return { error: 'Transaksi tidak ditemukan' };
+      }
+      return { error: msg };
+    }
+
+    await fetchTransactions();
+    return { error: null };
+  };
 
   return {
-    transactions: query.data ?? [],
-    isLoading: query.isLoading,
-    error: query.error,
-    addTransaction: addMutation.mutateAsync,
+    transactions,
+    loading,
+    error,
+    addTransaction,
+    voidTransaction,
+    refetch: fetchTransactions,
   };
 }
