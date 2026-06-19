@@ -68,10 +68,13 @@ function mapPaymentMethodToDb(appMethod: Transaction['paymentMethod']): string {
 
 export function useTransactions() {
   const { user } = useAuth();
-  const { storeId } = useStoreRole();
+  const { storeId, membership } = useStoreRole();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // lastRecapAt dari membership (store data)
+  const lastRecapAt = membership?.lastRecapAt ?? null;
 
   // ── Fetch transactions ─────────────────────────────────────
   const fetchTransactions = useCallback(async () => {
@@ -205,8 +208,19 @@ export function useTransactions() {
     return { error: null };
   };
 
+  // ── Split by recap cutoff ───────────────────────────────────
+  const activeTransactions = lastRecapAt
+    ? transactions.filter((t) => t.date > new Date(lastRecapAt))
+    : transactions;
+
+  const archivedTransactions = lastRecapAt
+    ? transactions.filter((t) => t.date <= new Date(lastRecapAt))
+    : [];
+
   return {
     transactions,
+    activeTransactions,
+    archivedTransactions,
     loading,
     error,
     addTransaction,

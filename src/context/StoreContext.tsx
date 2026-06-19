@@ -12,6 +12,7 @@ export interface StoreMembership {
   storeTelepon: string;
   role: Role;
   nama: string;
+  lastRecapAt: string | null;
 }
 
 export interface StoreMember {
@@ -30,10 +31,20 @@ export interface StoreInvite {
   usedAt: string | null;
 }
 
+export interface RecapEntry {
+  id: string;
+  periodStart: string;
+  periodEnd: string;
+  totalTransactions: number;
+  totalRevenue: number;
+  createdAt: string;
+}
+
 interface StoreContextType {
   membership: StoreMembership | null;
   members: StoreMember[];
   invites: StoreInvite[];
+  recapHistory: RecapEntry[];
   loading: boolean;
   hasStore: boolean;
   role: Role | null;
@@ -44,6 +55,7 @@ interface StoreContextType {
   joinStore: (params: { code: string; nama: string }) => Promise<{ storeId: string | null; error: string | null }>;
   createInvite: () => Promise<{ code: string | null; error: string | null }>;
   removeMember: (memberId: string) => Promise<{ error: string | null }>;
+  doRecap: () => Promise<{ error: string | null }>;
   refetch: () => Promise<void>;
 }
 
@@ -54,6 +66,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [membership, setMembership] = useState<StoreMembership | null>(null);
   const [members, setMembers] = useState<StoreMember[]>([]);
   const [invites, setInvites] = useState<StoreInvite[]>([]);
+  const [recapHistory, setRecapHistory] = useState<RecapEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   // ── Fetch membership ───────────────────────────────────────
@@ -66,7 +79,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     const { data, error } = await supabase
       .from('store_members')
-      .select('store_id, role, nama, stores(id, nama, alamat, telepon)')
+      .select('store_id, role, nama, stores(id, nama, alamat, telepon, last_recap_at)')
       .eq('user_id', user.id)
       .order('joined_at', { ascending: false })
       .limit(1)
@@ -82,7 +95,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       store_id: string;
       role: Role;
       nama: string;
-      stores: { id: string; nama: string; alamat: string; telepon: string };
+      stores: { id: string; nama: string; alamat: string; telepon: string; last_recap_at: string | null };
     };
 
     setMembership({
@@ -92,6 +105,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       storeTelepon: row.stores.telepon ?? '',
       role: row.role,
       nama: row.nama,
+      lastRecapAt: row.stores.last_recap_at,
     });
     setLoading(false);
   }, [user]);
@@ -153,6 +167,34 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     fetchInvites();
   }, [fetchInvites]);
+
+  // ── Fetch recap history ────────────────────────────────────
+  const fetchRecapHistory = useCallback(async () => {
+    if (!membership) return;
+
+    const { data } = await supabase
+      .from('recap_history')
+      .select('id, period_start, period_end, total_transactions, total_revenue, created_at')
+      .eq('store_id', membership.storeId)
+      .order('created_at', { ascending: false });
+
+    if (data) {
+      setRecapHistory(
+        (data as unknown as { id: string; period_start: string; period_end: string; total_transactions: number; total_revenue: number; created_at: string }[]).map((r) => ({
+          id: r.id,
+          periodStart: r.period_start,
+          periodEnd: r.period_end,
+          totalTransactions: r.total_transactions,
+          totalRevenue: Number(r.total_revenue),
+          createdAt: r.created_at,
+        }))
+      );
+    }
+  }, [membership]);
+
+  useEffect(() => {
+    fetchRecapHistory();
+  }, [fetchRecapHistory]);
 
   // ── Actions ────────────────────────────────────────────────
 
@@ -225,12 +267,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return { error: null };
   };
 
+  /** Owner: rekap transaksi periode aktif */
+  const doRecap = async (): Promise<{ error: string | null }> => {
+    const { error } = await supabase.rpc('do_recap');
+
+    if (error) {
+      if (error.message.includes('Hanya owner')) {
+        return { error: 'Hanya owner yang bisa melakukan rekap' };
+      }
+      if (error.message.includes('Tidak ada transaksi')) {
+        return { error: 'Tidak ada transaksi untuk direkap' };
+      }
+      return { error: error.message };
+    }
+
+    // Refresh membership (last_recap_at berubah) + recap history
+    await fetchMembership();
+    await fetchRecapHistory();
+    return { error: null };
+  };
+
   return (
     <StoreContext.Provider
       value={{
         membership,
         members,
         invites,
+        recapHistory,
         loading,
         hasStore: !!membership,
         role: membership?.role ?? null,
@@ -241,6 +304,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         joinStore,
         createInvite,
         removeMember,
+        doRecap,
         refetch: fetchMembership,
       }}
     >
