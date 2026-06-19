@@ -8,6 +8,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { useStoreRole } from '../context/StoreContext';
+import { supabase } from '../lib/supabase';
 import { formatDateTime } from '../utils/format';
 
 type ModalType =
@@ -86,14 +87,14 @@ const STATUS_CONFIG = {
 export default function SettingsPage() {
   const { darkMode, toggleDarkMode, settings, updateSettings, scanner, updateScannerLabel, resetScanner } = useApp();
   const { signOut } = useAuth();
-  const { membership, members, invites, isOwner, createInvite, removeMember } = useStoreRole();
+  const { membership, members, invites, isOwner, createInvite, removeMember, refetch } = useStoreRole();
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   // form states
-  const [storeForm, setStoreForm]     = useState({ storeName: settings.storeName, address: settings.address, phone: settings.phone });
+  const [storeForm, setStoreForm]     = useState({ storeName: membership?.storeName ?? settings.storeName, address: membership?.storeAlamat ?? settings.address, phone: membership?.storeTelepon ?? settings.phone });
   const [profileForm, setProfileForm] = useState({ cashierName: settings.cashierName });
   const [securityForm, setSecurityForm] = useState({ currentPin: '', newPin: '', confirmPin: '' });
   const [printerForm, setPrinterForm] = useState({ printerName: settings.printerName, autoPrint: settings.autoPrint });
@@ -104,7 +105,7 @@ export default function SettingsPage() {
   const [pinSuccess, setPinSuccess] = useState(false);
 
   const openModal = (type: ModalType) => {
-    setStoreForm({ storeName: settings.storeName, address: settings.address, phone: settings.phone });
+    setStoreForm({ storeName: membership?.storeName ?? settings.storeName, address: membership?.storeAlamat ?? settings.address, phone: membership?.storeTelepon ?? settings.phone });
     setProfileForm({ cashierName: settings.cashierName });
     setPrinterForm({ printerName: settings.printerName, autoPrint: settings.autoPrint });
     setScannerLabelEdit(scanner.label);
@@ -115,9 +116,23 @@ export default function SettingsPage() {
   };
   const closeModal = () => setActiveModal(null);
 
-  const handleSaveStore = () => {
+  const handleSaveStore = async () => {
     if (!storeForm.storeName.trim()) return;
+    // Update localStorage (untuk offline fallback)
     updateSettings({ storeName: storeForm.storeName.trim(), address: storeForm.address.trim(), phone: storeForm.phone.trim() });
+    // Update Supabase stores table
+    if (membership?.storeId) {
+      await supabase
+        .from('stores')
+        .update({
+          nama: storeForm.storeName.trim(),
+          alamat: storeForm.address.trim(),
+          telepon: storeForm.phone.trim(),
+        })
+        .eq('id', membership.storeId);
+      // Refresh membership state
+      await refetch();
+    }
     closeModal();
   };
   const handleSaveProfile = () => {
